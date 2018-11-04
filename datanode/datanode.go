@@ -58,165 +58,132 @@ func (dn *dataNode) Handler(conn net.Conn) {
 		// Receive write request from client
 		msg := utils.WriteRequest{}
 		utils.Deserialize(buf[:n], &msg)
-
 		dn.fileReader(conn, msg)
 
 	} else if buf[0] == utils.ReadRequestMsg {
 		// Receive read request from client
 		msg := utils.ReadRequest{}
 		utils.Deserialize(buf[:n], &msg)
-
 		dn.fileWriter(conn, msg)
-	} else if buf[0] == utils.ReReplicaRequestMsg {
-		// Receive re-replica request from master or peer
-		fmt.Println("Receive re-replica request")
-		msg := utils.ReReplicaRequest{}
+
+	} else if buf[0] == utils.CopyRequestMsg {
+		// Receive copy request from master node
+		msg := utils.CopyRequest{}
 		utils.Deserialize(buf[:n], &msg)
-
-		dn.reReplicaStat(conn, msg)
-	} else if buf[0] == utils.ReReplicaResponseMsg {
-		// Receive re-replica response from peer
-		fmt.Println("Receive re-replica response")
-		msg := utils.ReReplicaResponse{}
-		utils.Deserialize(buf[:n], &msg)
-
-		dn.reReplicaReader(conn, msg)
-	} else if buf[0] == utils.ReReplicaGetMsg {
-		// Receive re-replica get from peer
-		fmt.Println("Receive re-replica get")
-		msg := utils.ReReplicaGet{}
-		utils.Deserialize(buf[:n], &msg)
-
-		dn.reReplicaWriter(conn, msg)
-	}
-
-}
-
-// Handle Re-Replica Request message from master or peer datanode
-func (dn *dataNode) reReplicaStat(conn net.Conn, rrrMsg utils.ReReplicaRequest) {
-	hashFilename := utils.Hash2Text(rrrMsg.FilenameHash[:])
-	fmt.Println("ReplicaStat", hashFilename)
-	_, ok := meta.FileInfo(hashFilename)
-	dn.dialDataNodeReReplica(rrrMsg)
-	if ok {
-		fmt.Println("There has been a replica")
-		return
-	}
-
-	connGet, err := net.Dial("tcp", conn.RemoteAddr().(*net.TCPAddr).IP.String()+":"+dn.NodePort)
-	if err != nil {
-		utils.PrintError(err)
-		return
-	}
-	rrr := utils.ReReplicaGet{MsgType: utils.ReReplicaGetMsg, FilenameHash: rrrMsg.FilenameHash}
-	bin := utils.Serialize(rrr)
-	_, err = connGet.Write(bin)
-	utils.PrintError(err)
-
-	meta.UpdateFileInfo(hashFilename, rrrMsg.DataNodeList[:])
-}
-
-func (dn *dataNode) reReplicaReader(conn net.Conn, rrrMsg utils.ReReplicaResponse) {
-	// Create local filename from re-replica
-	filesize := rrrMsg.Filesize
-	hashFilename := utils.Hash2Text(rrrMsg.FilenameHash[:])
-	timestamp := fmt.Sprintf("%d", rrrMsg.Timestamp)
-	filename := hashFilename + ":" + timestamp
-
-	fmt.Println("filename: ", filename)
-
-	// Create file descriptor
-	file, err := os.Create(filename)
-	if err != nil {
-		fmt.Println(err.Error())
-	}
-	defer file.Close()
-
-	// Ready to receive file
-	conn.Write([]byte("OK"))
-	fmt.Println("Sent OK")
-
-	// Read file data from connection and write to local
-	buf := make([]byte, BufferSize)
-	var receivedBytes uint64
-
-	for {
-		n, err := conn.Read(buf)
-		file.Write(buf[:n])
-		receivedBytes += uint64(n)
-
-		if err == io.EOF {
-			fmt.Printf("Receive replica %s finish\n", filename)
-			break
-		}
-	}
-
-	// File size check
-	if receivedBytes != filesize {
-		fmt.Println("file size unmatch")
-	} else {
-		info := utils.Info{
-			Timestamp: rrrMsg.Timestamp,
-			Filesize:  rrrMsg.Filesize,
-			DataNodes: rrrMsg.DataNodeList[:],
-		}
-		meta.PutFileInfo(hashFilename, info)
-		fmt.Printf("put %s with ts %d into meta list\n", hashFilename, rrrMsg.Timestamp)
+		dn.fileCopyer(conn, msg)
 	}
 }
 
-func (dn *dataNode) reReplicaWriter(conn net.Conn, rrgMsg utils.ReReplicaGet) {
 
-	hashFilename := utils.Hash2Text(rrgMsg.FilenameHash[:])
-	infos, ok := meta.FileInfos(hashFilename)
-	if ok == false {
-		fmt.Println("ReReplica failed for this node has no info of this file")
-		return
-	}
+func (dn *dataNode) fileCopyer(conn net.Conn, cr utils.CopyRequest) {
+	defer conn.Close()
 
-	for i := 0; i < len(infos); i++ {
-		connResponse, err := net.Dial("tcp", conn.RemoteAddr().(*net.TCPAddr).IP.String()+":"+dn.NodePort)
-		if err != nil {
-			utils.PrintError(err)
-			return
-		}
+	hashFilename := utils.Hash2Text(cr.FilenameHash[:])
+	timestamp := fmt.Sprintf("%d", cr.Timestamp)
+	filename := hashFilename + ":" + timestamp // Local filename
 
-		file, err := os.OpenFile(hashFilename+":"+fmt.Sprintf("%d", infos[i].Timestamp), os.O_RDONLY, 0755)
-		utils.PrintError(err)
-
-		rrr := utils.ReReplicaResponse{
-			MsgType:      utils.ReReplicaResponseMsg,
-			Filesize:     infos[i].Filesize,
-			Timestamp:    infos[i].Timestamp,
-			FilenameHash: rrgMsg.FilenameHash,
-		}
-
-		for k, v := range infos[i].DataNodes {
-			rrr.DataNodeList[k] = v
-		}
-
-		bin := utils.Serialize(rrr)
-		_, err = connResponse.Write(bin)
-		utils.PrintError(err)
-
-		buf := make([]byte, BufferSize)
-		n, err := connResponse.Read(buf)
-		for string(buf[:n]) != "OK" {
-		}
-		fmt.Println(string(buf[:n]))
-
-		buf = make([]byte, BufferSize)
-		for {
-			n, err := file.Read(buf)
-			connResponse.Write(buf[:n])
-			if err == io.EOF {
-				fmt.Println("Send ReReplica file finish")
+	// Check file existence
+	hasFile := false
+	infos, exist := meta[hashFilename]
+	if exist {
+		for _, info := range infos {
+			if cr.Timestamp == info.Timestamp {
+				hasFile = true
 				break
 			}
 		}
 	}
 
+	if hasFile {
+		// send copy to next hop 
+		file, err := os.Open(filename)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+		defer file.Close()
+
+		nodeID, err := dn.getNextNodeID(cr.DataNodeList[:])
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+		nextNodeConn, err := net.Dial("tcp", utils.StringIP(nodeID.IP)+":"+dn.NodePort)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+		defer nextNodeConn.Close()
+
+		nextNodeConn.Write(utils.Serialize(cr)) // Send copy request
+
+		buf := make([]byte, BufferSize)
+		for {
+			n, err := file.Read(buf)
+			conn.Write(buf[:n])
+			if err == io.EOF {
+				fmt.Printf("send file %s to %s finish\n", filename, utils.StringIP(nodeID.IP))
+				break
+			}
+		}
+
+
+	} else {
+		// receive copy from copy sender and send copy to the next hop if exists
+		filesize := cr.Filesize
+
+		file, err := os.Create(filename)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+		defer file.Close()
+
+		hasNextNode := true
+		var nextNodeConn net.Conn
+		nodeID, err := dn.getNextNodeID(cr.DataNodeList[:])
+		if err != nil {
+			fmt.Println(err.Error())
+			hasNextNode = false		
+		} else {
+			nextNodeConn, err = net.Dial("tcp", utils.StringIP(nodeID.IP)+":"+dn.NodePort)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			defer nextNodeConn.Close()
+			nextNodeConn.Write(utils.Serialize(cr))
+		}
+
+		buf := make([]byte, BufferSize)
+		var receivedBytes uint64
+		for {
+			n, err := conn.Read(buf)
+			file.Write(buf[:n])
+			receivedBytes += uint64(n)
+
+			if hasNextNode {
+				nextNodeConn.Write(buf[:n])
+			}
+
+			if err == io.EOF {
+				fmt.Printf("receive file %s finish", filename)
+				break
+			}
+		}
+
+		if receivedBytes != filesize {
+			fmt.Println("file size unmatch")
+		} else {
+			info := utils.Info{
+				Timestamp: cr.Timestamp,
+				Filesize: cr.Filesize,
+				DataNodes: cr.DataNodeList[:],
+			}
+			meta.PutFileInfo(hashFilename, info)
+			meta.StoreMeta("meta.json")
+			fmt.Printf("put %s with ts %d into meta list\n", hashFilename, cr.Timestamp)
+
+			// Tell master node it receives a new file
+		}
+	}
 }
+
 
 // Receive remote file from cleint, store it in local and send it to next hop if possible
 func (dn *dataNode) fileReader(conn net.Conn, wr utils.WriteRequest) {
@@ -245,10 +212,6 @@ func (dn *dataNode) fileReader(conn net.Conn, wr utils.WriteRequest) {
 		fmt.Println("next node addr: ", (*nextNodeConn).RemoteAddr().String())
 		defer (*nextNodeConn).Close()
 	}
-
-	// Ready to receive file
-	conn.Write([]byte("OK"))
-	fmt.Println("Sent OK")
 
 	// Read file data from connection and write to local
 	buf := make([]byte, BufferSize)
@@ -296,7 +259,7 @@ func (dn *dataNode) fileWriter(conn net.Conn, rr utils.ReadRequest) {
 	info, ok := meta.FileInfo(filename)
 	if ok == false {
 		conn.Write([]byte(" "))
-		fmt.Println("Local file requested not found")
+		fmt.Println("local file requested not found")
 		return
 	}
 	timestamp := fmt.Sprintf("%d", info.Timestamp)
@@ -309,22 +272,7 @@ func (dn *dataNode) fileWriter(conn net.Conn, rr utils.ReadRequest) {
 	}
 	defer file.Close()
 
-	// Block until it receives OK
-	/*buf := make([]byte, BufferSize)*/
-	//n, _ := conn.Read(buf)
-	//for n > 0 {
-	//if string(buf[:n]) == "OK" {
-	//break
-	//} else {
-	//buf = make([]byte, BufferSize)
-	//n, _ = conn.Read(buf)
-	//}
-	/*}*/
-
-	fmt.Println("client ready to receive file")
-
 	buf := make([]byte, BufferSize)
-
 	for {
 		n, err := file.Read(buf)
 		conn.Write(buf[:n])
@@ -333,7 +281,6 @@ func (dn *dataNode) fileWriter(conn net.Conn, rr utils.ReadRequest) {
 			break
 		}
 	}
-
 }
 
 func (dn *dataNode) dialMasterNode(masterID uint8, filenameHash [32]byte, filesize uint64, timestamp uint64) {
@@ -356,11 +303,10 @@ func (dn *dataNode) dialMasterNode(masterID uint8, filenameHash [32]byte, filesi
 
 // Dial DataNode with WriteRequest
 func (dn *dataNode) dialDataNode(wr utils.WriteRequest) (*net.Conn, error) {
-	nodeID, err := dn.getNexthopID(wr.DataNodeList[:])
+	nodeID, err := dn.getNextNodeID(wr.DataNodeList[:])
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("Get Node ID")
 
 	conn, err := net.Dial("tcp", utils.StringIP(nodeID.IP)+":"+dn.NodePort)
 	if err != nil {
@@ -370,56 +316,14 @@ func (dn *dataNode) dialDataNode(wr utils.WriteRequest) (*net.Conn, error) {
 	// Send write request to the next hop
 	conn.Write(utils.Serialize(wr))
 
-	// Wait for next hop's reply
-	buf := make([]byte, BufferSize)
-	n, err := conn.Read(buf)
-	for string(buf[:n]) != "OK" {
-	}
-	fmt.Printf("node %v ready to receive file", nodeID)
-
 	return &conn, nil
 }
 
-// Dial DataNode with ReReplicaRequest transfer
-func (dn *dataNode) dialDataNodeReReplica(rrr utils.ReReplicaRequest) {
-	rrr.TimeToLive -= 1
-	if rrr.TimeToLive == 0 {
-		return
-	}
-
-	nodeID, err := dn.getNexthopIDCircle(rrr.DataNodeList[:])
-	if err != nil {
-		fmt.Println("Get Node ID failed")
-		return
-	}
-
-	conn, err := net.Dial("tcp", utils.StringIP(nodeID.IP)+":"+dn.NodePort)
-	if err != nil {
-		utils.PrintError(err)
-		return
-	}
-
-	// Send re-replica request to the next hop
-	conn.Write(utils.Serialize(rrr))
-}
-
-// Return the first non-zero nodeID's index
-func (dn *dataNode) getNexthopID(nodeList []utils.NodeID) (utils.NodeID, error) {
+func (dn *dataNode) getNextNodeID(nodeList []utils.NodeID) (utils.NodeID, error) {
 	for k, v := range nodeList {
 		if v == dn.NodeID && k < len(nodeList)-1 &&
 			nodeList[k+1].IP != 0 && nodeList[k+1].Timestamp != 0 {
 			return nodeList[k+1], nil
-		}
-	}
-	return utils.NodeID{}, errors.New("Nexthop doesn't exists")
-}
-
-// Return the first non-zero nodeID's index
-func (dn *dataNode) getNexthopIDCircle(nodeList []utils.NodeID) (utils.NodeID, error) {
-	for k, v := range nodeList {
-		if v == dn.NodeID && k < len(nodeList) &&
-			nodeList[(k+1)%len(nodeList)].IP != 0 && nodeList[(k+1)%len(nodeList)].Timestamp != 0 {
-			return nodeList[(k+1)%len(nodeList)], nil
 		}
 	}
 	return utils.NodeID{}, errors.New("Nexthop doesn't exists")

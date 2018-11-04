@@ -10,7 +10,6 @@ import (
 )
 
 var meta utils.Meta
-
 var hashtextToFilenameMap map[string]string
 
 type masterNode struct {
@@ -140,59 +139,6 @@ func (mn *masterNode) HandleStoreRequest(srMsg utils.StoreRequest, conn net.Conn
 	return
 }
 
-// Re-replica go routine for consistently check if a file has kept in four replica
-// Send the re-replica request to a node who has this file and pipeline the checking
-func (mn *masterNode) ReReplicaRoutine() {
-	for {
-		for file, info := range meta {
-			filename := hashtextToFilenameMap[file]
-			dataNodes := info[0].DataNodes
-			dnList, err := utils.HashReplicaRange(filename, uint32(mn.MemberList.Size()))
-			utils.PrintError(err)
-			rrr := utils.ReReplicaRequest{
-				MsgType:      utils.ReReplicaRequestMsg,
-				FilenameHash: utils.HashFilename(filename),
-				TimeToLive:   4,
-			}
-			fmt.Println("Filename Hash", utils.Hash2Text(rrr.FilenameHash[:]))
-			nodeIP := " "
-			isInMeta := false
-			for i, index := range dnList {
-				m, err := mn.MemberList.RetrieveByIdx(int(index))
-				if err != nil {
-					utils.PrintError(err)
-					continue
-				}
-				for _, id := range dataNodes {
-					if id.IP == m.IP && id.Timestamp == m.Timestamp {
-						isInMeta = true
-						nodeIP = utils.StringIP(id.IP)
-						break
-					}
-				}
-				rrr.DataNodeList[i] = utils.NodeID{Timestamp: m.Timestamp, IP: m.IP}
-			}
-			if isInMeta {
-				mn.ReReplicaRequest(rrr, nodeIP+":"+utils.StringPort(mn.DNPort))
-			} else {
-				fmt.Println("No applicable replica nodes. Replica failed")
-			}
-			meta.UpdateFileInfo(utils.Hash2Text(rrr.FilenameHash[:]), rrr.DataNodeList[:])
-		}
-		time.Sleep(30 * time.Second)
-	}
-}
-
-func (mn *masterNode) ReReplicaRequest(rrr utils.ReReplicaRequest, addr string) {
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		utils.PrintError(err)
-		fmt.Println("Failed to connect Re-replica node")
-		return
-	}
-
-	conn.Write(utils.Serialize(rrr))
-}
 
 func (mn *masterNode) Handle(conn net.Conn) {
 	buf := make([]byte, 4096)
@@ -231,7 +177,20 @@ func (mn *masterNode) Handle(conn net.Conn) {
 }
 
 
+/* Copy replica when node failed */
 
+func (mn *masterNode) detectNodeFailure(ch chan uint64) {
+	for {
+		select {
+		case ts := <-ch:
+			ip := uint32(<-ch)
+			fmt.Println("node (%s) failed", utils.StringIP(ip))
+			mn.pruneMeta(ts, ip)
+			mn.restoreMeta()
+		default:
+		}
+	}
+}
 
 func (mn *masterNode) pruneMeta(timestamp uint64, ip uint32) {
 	for _, infos := range meta {
@@ -253,12 +212,17 @@ func (mn *masterNode) restoreMeta() {
 	for filename, infos := range meta {
 		for _, info := range infos {
 			if len(info.DataNodes) < 4 {
+				fmt.Printf("%s 's nodelist less than 4, need copy\n", hashtextToFilenameMap[filename])
+
 				sender := info.DataNodes[0] // Pick the first node as the copy sender
+				fmt.Printf("%s is picked as copy sender\n", utils.StringIP(sender.IP))
+
 				num := 4 - len(info.DataNodes)
 				receivers := mn.pickReceivers(info.DataNodes, num)
 				nodelist := info.DataNodes
 				for _, receiver := range receivers {
 					nodelist = append(nodelist, receiver)
+					fmt.Printf("%s is picked as copy receiver\n", utils.StringIP(receiver.IP))
 				}
 				mn.sendCopyRequest(filename, info.Filesize, info.Timestamp, sender, nodelist)
 			}
@@ -313,29 +277,32 @@ func (mn *masterNode) sendCopyRequest(filename string, filesize uint64, timestam
 	defer conn.Close()
 
 	conn.Write(utils.Serialize(cr))
+	fmt.Println("send copy request to %s", utils.StringIP(sender.IP))
 }
 
 
 
 
-
-func (mn *masterNode) Start() {
+func (mn *masterNode) Start(ch chan uint64) {
 	//meta = utils.NewMeta("MasterMeta")
 	meta = utils.Meta{}
 	hashtextToFilenameMap = make(map[string]string)
+
+	go mn.detectNodeFailure(ch)
 
 	listener, err := net.Listen("tcp", ":"+mn.Port)
 	if err != nil {
 		utils.PrintError(err)
 		return
 	}
-	go mn.ReReplicaRoutine()
+
 	for {
 		conn, err := listener.Accept()
-		defer conn.Close()
 		if err != nil {
-			// handle error
+			fmt.Println(err.Error())
 		}
+		defer conn.Close()
+
 		go mn.Handle(conn)
 	}
 }
