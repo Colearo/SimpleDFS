@@ -21,7 +21,13 @@ const (
 	ReReplicaRequestMsg  = 15
 	ReReplicaResponseMsg = 16
 	ReReplicaGetMsg      = 17
+	CopyRequestMsg       = 18
 )
+
+type NodeID struct {
+	Timestamp uint64
+	IP        uint32
+}
 
 type PutRequest struct {
 	MsgType  uint8
@@ -125,9 +131,12 @@ type ReReplicaResponse struct {
 	DataNodeList [NumReplica]NodeID
 }
 
-type NodeID struct {
-	Timestamp uint64
-	IP        uint32
+type CopyRequest struct {
+	MsgType		 uint8
+	FilenameHash [32]byte
+	Filesize     uint64
+	Timestamp    uint64
+	DataNodeList [NumReplica]NodeID
 }
 
 
