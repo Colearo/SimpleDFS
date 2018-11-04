@@ -182,11 +182,8 @@ func (mn *masterNode) Handle(conn net.Conn) {
 func (mn *masterNode) detectNodeFailure(ch chan uint64) {
 	for {
 		select {
-		case ts := <-ch:
-			fmt.Println("node (%v) failed", ts)
-			ip := uint32(<-ch)
-			mn.pruneMeta(ts, ip)
-			mn.restoreMeta()
+		case <-ch:
+			fmt.Println("node failed")
 		default:
 		}
 	}
