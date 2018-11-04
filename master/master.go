@@ -11,7 +11,7 @@ import (
 
 var meta utils.Meta
 
-var hasnToFilenameMap map[string]string
+var hashtextToFilenameMap map[string]string
 
 type masterNode struct {
 	Port       string
@@ -34,7 +34,7 @@ func (mn *masterNode) HandlePutRequest(prMsg utils.PutRequest, conn net.Conn) {
 	pr := utils.PutResponse{MsgType: utils.PutResponseMsg}
 	pr.FilenameHash = utils.HashFilename(filename)
 	fmt.Println(utils.Hash2Text(pr.FilenameHash[:]))
-	hasnToFilenameMap[utils.Hash2Text(pr.FilenameHash[:])] = filename
+	hashtextToFilenameMap[utils.Hash2Text(pr.FilenameHash[:])] = filename
 	pr.Filesize = prMsg.Filesize
 	pr.Timestamp = uint64(timestamp)
 	dnList, err := utils.HashReplicaRange(filename, uint32(mn.MemberList.Size()))
@@ -132,7 +132,7 @@ func (mn *masterNode) HandleStoreRequest(srMsg utils.StoreRequest, conn net.Conn
 	conn.Write(bin)
 
 	for _, val := range files {
-		filename := hasnToFilenameMap[val]
+		filename := hashtextToFilenameMap[val]
 		buf := make([]byte, 128)
 		copy(buf[:], filename)
 		conn.Write(buf)
@@ -145,7 +145,7 @@ func (mn *masterNode) HandleStoreRequest(srMsg utils.StoreRequest, conn net.Conn
 func (mn *masterNode) ReReplicaRoutine() {
 	for {
 		for file, info := range meta {
-			filename := hasnToFilenameMap[file]
+			filename := hashtextToFilenameMap[file]
 			dataNodes := info[0].DataNodes
 			dnList, err := utils.HashReplicaRange(filename, uint32(mn.MemberList.Size()))
 			utils.PrintError(err)
@@ -230,6 +230,9 @@ func (mn *masterNode) Handle(conn net.Conn) {
 	}
 }
 
+
+
+
 func (mn *masterNode) pruneMeta(timestamp uint64, ip uint32) {
 	for _, infos := range meta {
 		for _, info := range infos {
@@ -253,7 +256,11 @@ func (mn *masterNode) restoreMeta() {
 				sender := info.DataNodes[0] // Pick the first node as the copy sender
 				num := 4 - len(info.DataNodes)
 				receivers := mn.pickReceivers(info.DataNodes, num)
-				mn.sendCopyRequest(filename, info.Timestamp, sender, receivers)
+				nodelist := info.DataNodes
+				for _, receiver := range receivers {
+					nodelist = append(nodelist, receiver)
+				}
+				mn.sendCopyRequest(filename, info.Filesize, info.Timestamp, sender, nodelist)
 			}
 		}
 	}
@@ -264,7 +271,8 @@ func (mn *masterNode) pickReceivers(fileHolders []utils.NodeID, num int) []utils
 	candidates := make([]utils.NodeID, 0)
 
 	// All nodes excluding file holders are candidates
-	for _, member := range mn.MemberList.Members {
+	for i := 0; i < mn.MemberList.Size(); i++ {
+		member := mn.MemberList.Members[i];
 		for _, fileHolder := range fileHolders {
 			if member.Timestamp == fileHolder.Timestamp && member.IP == fileHolder.IP {
 				continue
@@ -284,8 +292,27 @@ func (mn *masterNode) pickReceivers(fileHolders []utils.NodeID, num int) []utils
 }
 
 
-func (mn *masterNode) sendCopyRequest(filename string, timestamp uint64, sender utils.NodeID, receivers []utils.NodeID) {
-	
+func (mn *masterNode) sendCopyRequest(filename string, filesize uint64, timestamp uint64, sender utils.NodeID, nodelist []utils.NodeID) {
+	cr := utils.CopyRequest{
+		MsgType: utils.CopyRequestMsg,
+		FilenameHash: utils.HashFilename(hashtextToFilenameMap[filename]),
+		Filesize: filesize,
+		Timestamp: timestamp,
+	}
+	copy(cr.DataNodeList[:], nodelist[:])
+
+
+	// Call copy sender to send file replecas to receivers
+	senderAddr := utils.StringIP(sender.IP) + ":" + utils.StringPort(mn.DNPort)
+	conn, err := net.Dial("tcp", senderAddr)
+	if err != nil {
+		utils.PrintError(err)
+		fmt.Println("Failed to connect copy sender")
+		return
+	}
+	defer conn.Close()
+
+	conn.Write(utils.Serialize(cr))
 }
 
 
@@ -295,7 +322,7 @@ func (mn *masterNode) sendCopyRequest(filename string, timestamp uint64, sender 
 func (mn *masterNode) Start() {
 	//meta = utils.NewMeta("MasterMeta")
 	meta = utils.Meta{}
-	hasnToFilenameMap = make(map[string]string)
+	hashtextToFilenameMap = make(map[string]string)
 
 	listener, err := net.Listen("tcp", ":"+mn.Port)
 	if err != nil {
