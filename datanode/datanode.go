@@ -114,7 +114,13 @@ func (dn *dataNode) fileCopyer(conn net.Conn, cr utils.CopyRequest) {
 
 		nextNodeConn.Write(utils.Serialize(cr)) // Send copy request
 
+		// Wait for next hop's reply
 		buf := make([]byte, BufferSize)
+		n, err := nextNodeConn.Read(buf)
+		for string(buf[:n]) != "OK" {}
+		fmt.Printf("node %v ready to receive file", nodeID)
+
+		buf = make([]byte, BufferSize)
 		for {
 			n, err := file.Read(buf)
 			conn.Write(buf[:n])
@@ -148,7 +154,15 @@ func (dn *dataNode) fileCopyer(conn net.Conn, cr utils.CopyRequest) {
 			}
 			defer nextNodeConn.Close()
 			nextNodeConn.Write(utils.Serialize(cr))
+
+			// Wait for next hop's reply
+			buf := make([]byte, BufferSize)
+			n, _ := nextNodeConn.Read(buf)
+			for string(buf[:n]) != "OK" {}
+			fmt.Printf("node %v ready to receive file", nodeID)
 		}
+
+		conn.Write([]byte("OK"))
 
 		buf := make([]byte, BufferSize)
 		var receivedBytes uint64
@@ -212,6 +226,8 @@ func (dn *dataNode) fileReader(conn net.Conn, wr utils.WriteRequest) {
 		fmt.Println("next node addr: ", (*nextNodeConn).RemoteAddr().String())
 		defer (*nextNodeConn).Close()
 	}
+
+	conn.Write([]byte("OK")) // Send OK to notify file sender I am ready to accept
 
 	// Read file data from connection and write to local
 	buf := make([]byte, BufferSize)
@@ -315,6 +331,12 @@ func (dn *dataNode) dialDataNode(wr utils.WriteRequest) (*net.Conn, error) {
 
 	// Send write request to the next hop
 	conn.Write(utils.Serialize(wr))
+
+	// Wait for next hop's reply
+	buf := make([]byte, BufferSize)
+	n, err := conn.Read(buf)
+	for string(buf[:n]) != "OK" {}
+	fmt.Printf("node %v ready to receive file", nodeID)
 
 	return &conn, nil
 }

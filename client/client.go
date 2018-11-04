@@ -58,6 +58,13 @@ func filePut(pr utils.PutResponse, localfile string) {
 	utils.PrintError(err)
 
 	buf := make([]byte, BufferSize)
+
+	n, err := conn.Read(buf)
+	for string(buf[:n]) != "OK" {
+	}
+	fmt.Println(string(buf[:n]))
+
+	buf = make([]byte, BufferSize)
 	for {
 		n, err := file.Read(buf)
 		conn.Write(buf[:n])
