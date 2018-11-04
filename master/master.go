@@ -185,6 +185,7 @@ func (mn *masterNode) detectNodeFailure(ch chan uint64) {
 		case <-ch:
 			fmt.Println("node failed")
 		default:
+			fmt.Println("hello")
 		}
 	}
 }
