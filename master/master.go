@@ -198,7 +198,7 @@ func (mn *masterNode) pruneMeta(timestamp uint64, ip uint32) {
 			newDataNodes := make([]utils.NodeID, 0) // Store new node list
 			for _, nid := range info.DataNodes {
 				if timestamp == nid.Timestamp && ip == nid.IP {
-					fmt.Printf("the failed node contains file %s with ts %d", hashtextToFilenameMap[filename], info.Timestamp)
+					fmt.Printf("the failed node contains file %s with ts %d\n", hashtextToFilenameMap[filename], info.Timestamp)
 					continue
 				} else {
 					newDataNodes = append(newDataNodes, nid)
@@ -278,7 +278,7 @@ func (mn *masterNode) sendCopyRequest(filename string, filesize uint64, timestam
 	defer conn.Close()
 
 	conn.Write(utils.Serialize(cr))
-	fmt.Println("send copy request to %s", utils.StringIP(sender.IP))
+	fmt.Printf("send copy request to %s\n", utils.StringIP(sender.IP))
 }
 
 
