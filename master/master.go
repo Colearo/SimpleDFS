@@ -213,7 +213,7 @@ func (mn *masterNode) restoreMeta() {
 	for filename, infos := range meta {
 		for _, info := range infos {
 			if len(info.DataNodes) < 4 {
-				fmt.Printf("%s 's nodelist less than 4, need copy\n", hashtextToFilenameMap[filename])
+				fmt.Printf("%s's nodelist less than 4, need copy\n", hashtextToFilenameMap[filename])
 
 				sender := info.DataNodes[0] // Pick the first node as the copy sender
 				fmt.Printf("%s is picked as copy sender\n", utils.StringIP(sender.IP))
@@ -226,6 +226,8 @@ func (mn *masterNode) restoreMeta() {
 					fmt.Printf("%s is picked as copy receiver\n", utils.StringIP(receiver.IP))
 				}
 				mn.sendCopyRequest(filename, info.Filesize, info.Timestamp, sender, nodelist)
+			} else {
+				fmt.Printf("%s's has copy in 4 nodes\n", hashtextToFilenameMap[filename])
 			}
 		}
 	}
