@@ -66,7 +66,7 @@ var Logger *ssmsLogger
 var wg sync.WaitGroup // Block goroutines until user type join
 var mutex sync.Mutex  // Mutex used for duplicate update caches write
 
-var ch chan uint64 // Channle to notify other gorountines there are node failed
+var nch chan uint64 // Channle to notify other gorountines there are node failed
 
 // Convert struct to byte array
 func serialize(data interface{}) []byte {
@@ -400,8 +400,8 @@ func handleSuspect(payload []byte) {
 			if err == nil {
 				Logger.Info("[Failure Detected](%s, %d) Failed, detected by suspect update\n", int2ip(update.MemberIP).String(), update.MemberTimestamp)
 				fmt.Println("detect failed. send info to master node")
-				ch <- update.MemberTimestamp
-				ch <- uint64(update.MemberIP)
+				nch <- update.MemberTimestamp
+				// ch <- uint64(update.MemberIP)
 			}
 			delete(FailureTimerMap, [2]uint64{update.MemberTimestamp, uint64(update.MemberIP)})
 		}()
@@ -437,8 +437,8 @@ func handleLeave(payload []byte) {
 		err := MyList.Delete(update.MemberTimestamp, update.MemberIP)
 		if err == nil {
 			fmt.Println("detect failed. send info to master node")
-			ch <- update.MemberTimestamp
-			ch <- uint64(update.MemberIP)
+			nch <- update.MemberTimestamp
+			// ch <- uint64(update.MemberIP)
 		}
 		UpdateCacheList.Set(&update)
 	}
@@ -578,8 +578,8 @@ func pingWithPayload(member *Member, payload []byte, flag uint8) {
 			if err == nil {
 				Logger.Info("[Failure Detected](%s, %d) Failed, detected by self\n", int2ip(member.IP).String(), member.Timestamp)
 				fmt.Println("detect failed. send info to master node")
-				ch <- member.Timestamp
-				ch <- uint64(member.IP)
+				nch <- member.Timestamp
+				// ch <- uint64(member.IP)
 			}
 			delete(FailureTimerMap, [2]uint64{member.Timestamp, uint64(member.IP)})
 		}()
@@ -616,7 +616,7 @@ func Initilize() bool {
 func Start(introducerIP, port string, ch chan uint64) {
 	IntroducerIP = introducerIP
 	MembershipPort = ":" + port
-	ch = ch
+	nch = ch
 	// Start daemon
 	daemon()
 }

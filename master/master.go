@@ -182,10 +182,9 @@ func (mn *masterNode) Handle(conn net.Conn) {
 func (mn *masterNode) detectNodeFailure(ch chan uint64) {
 	for {
 		select {
-		case <-ch:
-			fmt.Println("node failed")
+		case ts := <-ch:
+			fmt.Println("%v node failed", ts)
 		default:
-			fmt.Println("hello")
 		}
 	}
 }
