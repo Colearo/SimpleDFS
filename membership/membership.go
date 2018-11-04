@@ -614,11 +614,11 @@ func Initilize() bool {
 }
 
 // Main func
-func Start(introducerIP, port string, tsch chan uint64, ipch chan uint32) {
+func Start(introducerIP, port string, tch chan uint64, ich chan uint32) {
 	IntroducerIP = introducerIP
 	MembershipPort = ":" + port
-	tsch = tsch
-	ipch = ipch
+	tsch = tch
+	ipch = ich
 	// Start daemon
 	daemon()
 }

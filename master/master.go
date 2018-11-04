@@ -281,12 +281,12 @@ func (mn *masterNode) sendCopyRequest(filename string, filesize uint64, timestam
 
 
 
-func (mn *masterNode) Start(tsch chan uint64, ipch chan uint32) {
+func (mn *masterNode) Start(tch chan uint64, ich chan uint32) {
 	//meta = utils.NewMeta("MasterMeta")
 	meta = utils.Meta{}
 	hashtextToFilenameMap = make(map[string]string)
 
-	go mn.detectNodeFailure(tsch, ipch)
+	go mn.detectNodeFailure(tch, ich)
 
 	listener, err := net.Listen("tcp", ":"+mn.Port)
 	if err != nil {
