@@ -183,8 +183,8 @@ func (mn *masterNode) detectNodeFailure(ch chan uint64) {
 	for {
 		select {
 		case ts := <-ch:
+			fmt.Println("node (%v) failed", ts)
 			ip := uint32(<-ch)
-			fmt.Println("node (%s) failed", utils.StringIP(ip))
 			mn.pruneMeta(ts, ip)
 			mn.restoreMeta()
 		default:

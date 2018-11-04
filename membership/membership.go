@@ -399,10 +399,11 @@ func handleSuspect(payload []byte) {
 			err := MyList.Delete(update.MemberTimestamp, update.MemberIP)
 			if err == nil {
 				Logger.Info("[Failure Detected](%s, %d) Failed, detected by suspect update\n", int2ip(update.MemberIP).String(), update.MemberTimestamp)
+				fmt.Println("detect failed. send info to master node")
+				ch <- update.MemberTimestamp
+				ch <- uint64(update.MemberIP)
 			}
 			delete(FailureTimerMap, [2]uint64{update.MemberTimestamp, uint64(update.MemberIP)})
-			ch <- update.MemberTimestamp
-			ch <- uint64(update.MemberIP)
 		}()
 	}
 }
@@ -433,10 +434,13 @@ func handleLeave(payload []byte) {
 
 	updateID := update.UpdateID
 	if !isUpdateDuplicate(updateID) {
-		MyList.Delete(update.MemberTimestamp, update.MemberIP)
+		err := MyList.Delete(update.MemberTimestamp, update.MemberIP)
+		if err == nil {
+			fmt.Println("detect failed. send info to master node")
+			ch <- update.MemberTimestamp
+			ch <- uint64(update.MemberIP)
+		}
 		UpdateCacheList.Set(&update)
-		ch <- update.MemberTimestamp
-		ch <- uint64(update.MemberIP)
 	}
 }
 
@@ -573,10 +577,11 @@ func pingWithPayload(member *Member, payload []byte, flag uint8) {
 			err := MyList.Delete(member.Timestamp, member.IP)
 			if err == nil {
 				Logger.Info("[Failure Detected](%s, %d) Failed, detected by self\n", int2ip(member.IP).String(), member.Timestamp)
+				fmt.Println("detect failed. send info to master node")
+				ch <- member.Timestamp
+				ch <- uint64(member.IP)
 			}
 			delete(FailureTimerMap, [2]uint64{member.Timestamp, uint64(member.IP)})
-			ch <- member.Timestamp
-			ch <- uint64(member.IP)
 		}()
 	}()
 }
