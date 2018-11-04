@@ -400,7 +400,6 @@ func handleSuspect(payload []byte) {
 			err := MyList.Delete(update.MemberTimestamp, update.MemberIP)
 			if err == nil {
 				Logger.Info("[Failure Detected](%s, %d) Failed, detected by suspect update\n", int2ip(update.MemberIP).String(), update.MemberTimestamp)
-				fmt.Println("detect failed. send info to master node")
 				tsch <- update.MemberTimestamp
 				ipch <- update.MemberIP
 			}
@@ -437,7 +436,6 @@ func handleLeave(payload []byte) {
 	if !isUpdateDuplicate(updateID) {
 		err := MyList.Delete(update.MemberTimestamp, update.MemberIP)
 		if err == nil {
-			fmt.Println("detect failed. send info to master node")
 			tsch <- update.MemberTimestamp
 			ipch <- update.MemberIP
 		}
@@ -577,8 +575,7 @@ func pingWithPayload(member *Member, payload []byte, flag uint8) {
 			<-failureTimer.C
 			err := MyList.Delete(member.Timestamp, member.IP)
 			if err == nil {
-				Logger.Info("[Failure Detected](%s, %d) Failed, detected by self\n", int2ip(member.IP).String(), member.Timestamp)
-				fmt.Println("detect failed. send info to master node")
+				Logger.Info("[Failure Detected](%s, %d) Failed, detected by me\n", int2ip(member.IP).String(), member.Timestamp)
 				tsch <- member.Timestamp
 				ipch <- member.IP
 			}

@@ -184,18 +184,21 @@ func (mn *masterNode) detectNodeFailure(tsch chan uint64, ipch chan uint32) {
 		select {
 		case ts := <-tsch:
 			ip := <-ipch
-			fmt.Println("node failed", ts, ip)
+			fmt.Printf("node %d %s failed\n", ts, utils.StringIP(ip))
+			mn.pruneMeta(ts, ip)
+			mn.restoreMeta()
 		default:
 		}
 	}
 }
 
 func (mn *masterNode) pruneMeta(timestamp uint64, ip uint32) {
-	for _, infos := range meta {
+	for filename, infos := range meta {
 		for _, info := range infos {
 			newDataNodes := make([]utils.NodeID, 0) // Store new node list
 			for _, nid := range info.DataNodes {
 				if timestamp == nid.Timestamp && ip == nid.IP {
+					fmt.Printf("the failed node contains file %s with ts %d", hashtextToFilenameMap[filename], info.Timestamp)
 					continue
 				} else {
 					newDataNodes = append(newDataNodes, nid)
