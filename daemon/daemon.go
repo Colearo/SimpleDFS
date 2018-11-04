@@ -26,15 +26,16 @@ func main() {
 		fmt.Printf("[INFO]: Start service\n")
 	}
 
-	ch := make(chan uint64)
+	tsch := make(chan uint64)
+	ipch := make(chan uint32)
 
 	if masterIP == localIP {
 		masterNode := master.NewMasterNode(fmt.Sprintf("%d", masternodePort), uint16(datanodePort), membership.MyList)
-		go masterNode.Start(ch)
+		go masterNode.Start(tsch, ipch)
 	}
 	nodeID := utils.NodeID{Timestamp: membership.MyMember.Timestamp, IP: membership.MyMember.IP}
 	node := datanode.NewDataNode(fmt.Sprintf("%d", datanodePort), membership.MyList, nodeID)
 	go node.Start()
 
-	membership.Start(masterIP, fmt.Sprintf("%d", membershipPort), ch)
+	membership.Start(masterIP, fmt.Sprintf("%d", membershipPort), tsch, ipch)
 }

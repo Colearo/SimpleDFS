@@ -179,11 +179,12 @@ func (mn *masterNode) Handle(conn net.Conn) {
 
 /* Copy replica when node failed */
 
-func (mn *masterNode) detectNodeFailure(ch chan uint64) {
+func (mn *masterNode) detectNodeFailure(tsch chan uint64, ipch chan uint32) {
 	for {
 		select {
-		case ts := <-ch:
-			fmt.Println("%v node failed", ts)
+		case ts := <-tsch:
+			ip := <-ipch
+			fmt.Println("node failed", ts, ip)
 		default:
 		}
 	}
@@ -280,12 +281,12 @@ func (mn *masterNode) sendCopyRequest(filename string, filesize uint64, timestam
 
 
 
-func (mn *masterNode) Start(ch chan uint64) {
+func (mn *masterNode) Start(tsch chan uint64, ipch chan uint32) {
 	//meta = utils.NewMeta("MasterMeta")
 	meta = utils.Meta{}
 	hashtextToFilenameMap = make(map[string]string)
 
-	go mn.detectNodeFailure(ch)
+	go mn.detectNodeFailure(tsch, ipch)
 
 	listener, err := net.Listen("tcp", ":"+mn.Port)
 	if err != nil {
